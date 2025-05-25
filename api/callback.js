@@ -96,14 +96,23 @@ export default async function handler(req, res) {
     // Update order status
     await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', MERCHANT_ORDER_ID]);
 
+    let products;
+    try {
+      products = Array.isArray(order.products) ? order.products : JSON.parse(order.products);
+    } catch (e) {
+      console.error('❌ Error parsing order.products:', e.message, order.products);
+      return res.status(500).send('Order data error');
+    }
+
     // DEMO MODE: Mark all UC_by_id products as paid and decrease their stock
     if (process.env.DEMO_MODE === 'true') {
-      const products = JSON.parse(order.products);
       for (const p of products) {
         if (p.category === 'uc_by_id') {
-          // Mark as paid (if you have a field for this, e.g., p.paid = true)
-          // Decrease stock in the products table
-          await pool.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [p.qty, p.id]);
+          try {
+            await pool.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [p.qty, p.id]);
+          } catch (e) {
+            console.error('❌ Error updating stock in DEMO_MODE:', e.message);
+          }
         }
       }
     }
@@ -111,21 +120,24 @@ export default async function handler(req, res) {
     // Send notification to user
     const userId = order.user_id;
     const pubgId = order.pubg_id;
-    const products = JSON.parse(order.products);
-
     const itemsText = products.map(p =>
-      `📦 ${p.name} x${p.qty} — ${p.price * p.qty} ₽`
+      `📦 ${p.name || p.title} x${p.qty} — ${p.price * p.qty} ₽`
     ).join('\n');
 
-    await bot.telegram.sendMessage(userId, `
-🧾 Заказ подтверждён:
-
-🎮 PUBG ID: ${pubgId}
-${itemsText}
-
-💰 Сумма: ${AMOUNT} ₽
-✅ Оплата получена. Ваш заказ скоро будет выполнен.
-    `);
+    try {
+      await bot.telegram.sendMessage(userId, `\n🧾 Заказ подтверждён:\n\n🎮 PUBG ID: ${pubgId}\n${itemsText}\n\n💰 Сумма: ${AMOUNT} ₽\n✅ Оплата получена. Ваш заказ скоро будет выполнен.\n    `);
+    } catch (botError) {
+      // Handle specific Telegram bot errors gracefully
+      if (botError.message.includes('chat not found') || 
+          botError.message.includes('bot was blocked') ||
+          botError.message.includes('user is deactivated')) {
+        console.warn('⚠️ Telegram bot could not notify user:', botError.message);
+        // Do not return 500, just log and continue
+      } else {
+        console.error('❌ Telegram bot error:', botError.message);
+        return res.status(500).send('Internal Server Error (bot)');
+      }
+    }
 
     console.log('✅ Payment confirmed and order updated:', MERCHANT_ORDER_ID, AMOUNT);
     res.setHeader('Content-Type', 'text/plain');
