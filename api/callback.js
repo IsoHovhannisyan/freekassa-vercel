@@ -1,4 +1,17 @@
 const crypto = require('crypto');
+const { Pool } = require('pg');
+const { Telegraf } = require('telegraf');
+
+// Initialize database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+// Initialize bot
+const bot = new Telegraf(process.env.BOT_TOKEN);
 
 export default async function handler(req, res) {
   // Set CORS headers to allow Freekassa servers
@@ -36,7 +49,12 @@ export default async function handler(req, res) {
   }
 
   const { MERCHANT_ORDER_ID, AMOUNT, SIGN } = body;
-  const SECRET_2 = process.env.FREEKASSA_SECRET_2 || 'changeme';
+  const SECRET_2 = process.env.FREEKASSA_SECRET_2;
+
+  if (!SECRET_2) {
+    console.error('❌ FREEKASSA_SECRET_2 is not set');
+    return res.status(500).send('Server configuration error');
+  }
 
   // Verify required fields
   if (!MERCHANT_ORDER_ID || !AMOUNT || !SIGN) {
@@ -54,7 +72,47 @@ export default async function handler(req, res) {
     return res.status(403).send('Invalid signature');
   }
 
-  console.log('✅ Payment confirmed:', MERCHANT_ORDER_ID, AMOUNT);
-  res.setHeader('Content-Type', 'text/plain');
-  res.send('YES');
+  try {
+    // Get order details from database
+    const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
+    const order = result.rows[0];
+
+    if (!order) {
+      console.warn(`❌ Order ${MERCHANT_ORDER_ID} not found`);
+      return res.status(404).send('Order not found');
+    }
+
+    if (order.status === 'confirmed') {
+      return res.send('Already confirmed');
+    }
+
+    // Update order status
+    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['confirmed', MERCHANT_ORDER_ID]);
+
+    // Send notification to user
+    const userId = order.user_id;
+    const pubgId = order.pubg_id;
+    const products = JSON.parse(order.products);
+
+    const itemsText = products.map(p =>
+      `📦 ${p.name} x${p.qty} — ${p.price * p.qty} ₽`
+    ).join('\n');
+
+    await bot.telegram.sendMessage(userId, `
+🧾 Заказ подтверждён:
+
+🎮 PUBG ID: ${pubgId}
+${itemsText}
+
+💰 Сумма: ${AMOUNT} ₽
+✅ Оплата получена. Ваш заказ скоро будет выполнен.
+    `);
+
+    console.log('✅ Payment confirmed and order updated:', MERCHANT_ORDER_ID, AMOUNT);
+    res.setHeader('Content-Type', 'text/plain');
+    res.send('YES');
+  } catch (err) {
+    console.error('❌ Error processing payment:', err.message);
+    return res.status(500).send('Internal Server Error');
+  }
 } 
