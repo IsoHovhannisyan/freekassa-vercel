@@ -89,6 +89,18 @@ export default async function handler(req, res) {
     // Update order status
     await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['confirmed', MERCHANT_ORDER_ID]);
 
+    // DEMO MODE: Mark all UC_by_id products as paid and decrease their stock
+    if (process.env.DEMO_MODE === 'true') {
+      const products = JSON.parse(order.products);
+      for (const p of products) {
+        if (p.category === 'uc_by_id') {
+          // Mark as paid (if you have a field for this, e.g., p.paid = true)
+          // Decrease stock in the products table
+          await pool.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [p.qty, p.id]);
+        }
+      }
+    }
+
     // Send notification to user
     const userId = order.user_id;
     const pubgId = order.pubg_id;
