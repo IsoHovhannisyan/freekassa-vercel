@@ -69,6 +69,13 @@ export default async function handler(req, res) {
 
   if (SIGN !== expectedSign) {
     console.log('❌ Invalid signature!');
+    // Set order status to error if order exists
+    try {
+      const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
+      if (result.rows.length > 0) {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
+      }
+    } catch (e) { /* ignore */ }
     return res.status(403).send('Invalid signature');
   }
 
@@ -87,7 +94,7 @@ export default async function handler(req, res) {
     }
 
     // Update order status
-    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['confirmed', MERCHANT_ORDER_ID]);
+    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', MERCHANT_ORDER_ID]);
 
     // DEMO MODE: Mark all UC_by_id products as paid and decrease their stock
     if (process.env.DEMO_MODE === 'true') {
@@ -125,6 +132,13 @@ ${itemsText}
     res.send('YES');
   } catch (err) {
     console.error('❌ Error processing payment:', err.message);
+    // Set order status to error if order exists
+    try {
+      const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
+      if (result.rows.length > 0) {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
+      }
+    } catch (e) { /* ignore */ }
     return res.status(500).send('Internal Server Error');
   }
 } 

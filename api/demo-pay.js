@@ -30,7 +30,7 @@ export default async function handler(req, res) {
     }
 
     // Update order status
-    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['confirmed', orderId]);
+    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', orderId]);
 
     // Decrease stock for UC_by_id products
     const products = JSON.parse(order.products);
