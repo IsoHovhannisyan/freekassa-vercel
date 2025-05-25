@@ -17,6 +17,26 @@ export default async function handler(req, res) {
     return res.status(400).send('Order ID is required.');
   }
 
+  if (req.method === 'GET') {
+    // Show confirmation page
+    return res.send(`
+      <html>
+        <head><title>Demo Payment</title></head>
+        <body style="font-family:sans-serif;text-align:center;padding-top:40px;">
+          <h2>Демо-оплата</h2>
+          <p>Нажмите кнопку ниже, чтобы подтвердить оплату заказа #${orderId}.</p>
+          <form method="POST">
+            <button type="submit" style="font-size:1.2em;padding:10px 30px;">Подтвердить оплату</button>
+          </form>
+        </body>
+      </html>
+    `);
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).send('Method Not Allowed');
+  }
+
   try {
     // Get order
     const result = await pool.query('SELECT * FROM orders WHERE id = $1', [orderId]);
@@ -29,20 +49,45 @@ export default async function handler(req, res) {
       return res.send('<h2>Order already marked as paid!</h2>');
     }
 
+    // Parse products robustly
+    let products;
+    if (Array.isArray(order.products)) {
+      products = order.products;
+    } else if (typeof order.products === 'string') {
+      try {
+        products = JSON.parse(order.products);
+      } catch (e) {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', orderId]);
+        return res.status(500).send('Order products data error.');
+      }
+    } else if (typeof order.products === 'object' && order.products !== null) {
+      products = Object.values(order.products);
+    } else {
+      await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', orderId]);
+      return res.status(500).send('Order products data error.');
+    }
+
     // Update order status
     await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', orderId]);
 
     // Decrease stock for UC_by_id products
-    const products = JSON.parse(order.products);
     for (const p of products) {
       if (p.category === 'uc_by_id') {
-        await pool.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [p.qty, p.id]);
+        try {
+          await pool.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [p.qty, p.id]);
+        } catch (e) {
+          await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', orderId]);
+          return res.status(500).send('Stock update error.');
+        }
       }
     }
 
     res.send('<h2>✅ Order marked as paid!<br>Stock updated for UC_by_id products.<br>You can check the admin panel now.</h2>');
   } catch (err) {
     console.error('Demo pay error:', err.message);
+    try {
+      await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', orderId]);
+    } catch (e) { /* ignore */ }
     res.status(500).send('Internal Server Error');
   }
 } 
