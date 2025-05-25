@@ -69,11 +69,11 @@ export default async function handler(req, res) {
 
   if (SIGN !== expectedSign) {
     console.log('❌ Invalid signature!');
-    // Set order status to error if order exists
+    // Set order status to unpaid if order exists
     try {
       const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
       if (result.rows.length > 0) {
-        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['unpaid', MERCHANT_ORDER_ID]);
       }
     } catch (e) { /* ignore */ }
     return res.status(403).send('Invalid signature');
@@ -132,11 +132,11 @@ ${itemsText}
     res.send('YES');
   } catch (err) {
     console.error('❌ Error processing payment:', err.message);
-    // Set order status to error if order exists
+    // Set order status to unpaid if order exists
     try {
       const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
       if (result.rows.length > 0) {
-        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['unpaid', MERCHANT_ORDER_ID]);
       }
     } catch (e) { /* ignore */ }
     return res.status(500).send('Internal Server Error');
