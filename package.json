@@ -1,6 +1,7 @@
 {
   "name": "freekassa-vercel",
   "version": "1.0.0",
+  "type": "module",
   "description": "Freekassa payment callback handler",
   "main": "index.js",
   "dependencies": {

@@ -1,6 +1,10 @@
-const { Pool } = require('pg');
-const path = require('path');
-const handleFreekassaCallback = require(path.resolve(__dirname, '../../bot/services/freekassa'));
+import { Pool } from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import handleFreekassaCallback from '../../bot/services/freekassa.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const pool = new Pool({
   connectionString: process.env.DB_URL,
