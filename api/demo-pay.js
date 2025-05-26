@@ -87,11 +87,11 @@ export default async function handler(req, res) {
     // --- Call Freekassa callback logic to trigger code activation and notification ---
     console.log('🟡 Calling Freekassa callback for demo order:', orderId);
     const fakeReq = {
-      query: {
-        MERCHANT_ID: 'demo',
-        AMOUNT: order.total || 0,
+      method: 'POST',
+      body: {
         MERCHANT_ORDER_ID: orderId,
-        SIGN: 'demo'
+        AMOUNT: order.total || 0,
+        SIGN: crypto.createHash('md5').update(`${orderId}:${order.total || 0}:${process.env.FREEKASSA_SECRET_2}`).digest('hex')
       }
     };
     const fakeRes = {
