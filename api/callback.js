@@ -1,6 +1,6 @@
-const crypto = require('crypto');
-const { Pool } = require('pg');
-const { Telegraf } = require('telegraf');
+import { Pool } from 'pg';
+import crypto from 'crypto';
+import { Telegraf } from 'telegraf';
 
 // Initialize database connection
 const pool = new Pool({
@@ -34,53 +34,24 @@ export default async function handler(req, res) {
     return res.status(405).send('Method Not Allowed');
   }
 
-  // Parse form data (Vercel parses JSON by default, so we need to handle form data)
-  let body = req.body;
-  if (typeof body === 'string') {
-    body = Object.fromEntries(new URLSearchParams(body));
-  }
+  const {
+    MERCHANT_ID,
+    AMOUNT,
+    MERCHANT_ORDER_ID,
+    SIGN
+  } = req.query;
 
-  console.log('📥 Received data:', body);
+  // Verify Freekassa signature
+  const hashString = `${MERCHANT_ID}:${AMOUNT}:${process.env.FREEKASSA_SECRET}:${MERCHANT_ORDER_ID}`;
+  const expectedSign = crypto.createHash('md5').update(hashString).digest('hex');
 
-  // Handle status check requests
-  if (body.status_check === '1') {
-    res.setHeader('Content-Type', 'text/plain');
-    return res.status(200).send('YES');
-  }
-
-  const { MERCHANT_ORDER_ID, AMOUNT, SIGN } = body;
-  const SECRET_2 = process.env.FREEKASSA_SECRET_2;
-
-  if (!SECRET_2) {
-    console.error('❌ FREEKASSA_SECRET_2 is not set');
-    return res.status(500).send('Server configuration error');
-  }
-
-  // Verify required fields
-  if (!MERCHANT_ORDER_ID || !AMOUNT || !SIGN) {
-    console.log('❌ Missing required fields');
-    return res.status(400).send('Missing required fields');
-  }
-
-  const expectedSign = crypto
-    .createHash('md5')
-    .update(`${MERCHANT_ORDER_ID}:${AMOUNT}:${SECRET_2}`)
-    .digest('hex');
-
-  if (SIGN !== expectedSign) {
-    console.log('❌ Invalid signature!');
-    // Set order status to unpaid if order exists
-    try {
-      const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
-      if (result.rows.length > 0) {
-        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['unpaid', MERCHANT_ORDER_ID]);
-      }
-    } catch (e) { /* ignore */ }
-    return res.status(403).send('Invalid signature');
+  if (expectedSign !== SIGN) {
+    console.warn('❌ Invalid sign from Freekassa!');
+    return res.status(403).send('Invalid sign');
   }
 
   try {
-    // Get order details from database
+    // Get order
     const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
     const order = result.rows[0];
 
@@ -93,64 +64,140 @@ export default async function handler(req, res) {
       return res.send('Already confirmed');
     }
 
-    // Update order status
-    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', MERCHANT_ORDER_ID]);
-
+    // Parse products
     let products;
     try {
       products = Array.isArray(order.products) ? order.products : JSON.parse(order.products);
     } catch (e) {
-      console.error('❌ Error parsing order.products:', e.message, order.products);
+      console.error('❌ Error parsing order.products:', e.message);
       return res.status(500).send('Order data error');
     }
 
-    // DEMO MODE: Mark all UC_by_id products as paid and decrease their stock
-    if (process.env.DEMO_MODE === 'true') {
-      for (const p of products) {
-        if (p.category === 'uc_by_id') {
-          try {
-            await pool.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [p.qty, p.id]);
-          } catch (e) {
-            console.error('❌ Error updating stock in DEMO_MODE:', e.message);
+    // Update order status to pending
+    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', MERCHANT_ORDER_ID]);
+
+    // Process each product
+    const results = [];
+    for (const product of products) {
+      if (product.category === 'uc_by_id') {
+        try {
+          // Redeem code through SyNet API
+          const redemption = await redeemCode(order.pubg_id, product.codeType || 'UC');
+          
+          if (redemption.success) {
+            results.push({
+              product: product.name,
+              status: 'success',
+              data: redemption.data
+            });
+          } else {
+            results.push({
+              product: product.name,
+              status: 'error',
+              error: redemption.error
+            });
           }
+        } catch (err) {
+          console.error(`❌ Error redeeming code for product ${product.name}:`, err);
+          results.push({
+            product: product.name,
+            status: 'error',
+            error: err.message
+          });
         }
       }
     }
 
-    // Send notification to user
+    // Prepare notification message
     const userId = order.user_id;
     const pubgId = order.pubg_id;
     const itemsText = products.map(p =>
-      `📦 ${p.name || p.title} x${p.qty} — ${p.price * p.qty} ₽`
+      `📦 ${p.name} x${p.qty} — ${p.price * p.qty} ₽`
     ).join('\n');
 
-    try {
-      await bot.telegram.sendMessage(userId, `\n🧾 Заказ подтверждён:\n\n🎮 PUBG ID: ${pubgId}\n${itemsText}\n\n💰 Сумма: ${AMOUNT} ₽\n✅ Оплата получена. Ваш заказ скоро будет выполнен.\n    `);
-    } catch (botError) {
-      // Handle specific Telegram bot errors gracefully
-      if (botError.message.includes('chat not found') || 
-          botError.message.includes('bot was blocked') ||
-          botError.message.includes('user is deactivated')) {
-        console.warn('⚠️ Telegram bot could not notify user:', botError.message);
-        // Do not return 500, just log and continue
-      } else {
-        console.error('❌ Telegram bot error:', botError.message);
-        return res.status(500).send('Internal Server Error (bot)');
-      }
-    }
+    // Add redemption results to message
+    const redemptionResults = results
+      .map(r => `${r.status === 'success' ? '✅' : '❌'} ${r.product}: ${r.status === 'success' ? 'Активирован' : r.error}`)
+      .join('\n');
 
-    console.log('✅ Payment confirmed and order updated:', MERCHANT_ORDER_ID, AMOUNT);
-    res.setHeader('Content-Type', 'text/plain');
-    res.send('YES');
+    await bot.telegram.sendMessage(userId, `
+🧾 Заказ подтверждён:
+
+🎮 PUBG ID: ${pubgId}
+${itemsText}
+
+💰 Сумма: ${AMOUNT} ₽
+✅ Оплата получена.
+
+Результаты активации:
+${redemptionResults}
+    `);
+
+    // Update order status based on results
+    const hasErrors = results.some(r => r.status === 'error');
+    const newStatus = hasErrors ? 'error' : 'delivered';
+    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [newStatus, MERCHANT_ORDER_ID]);
+
+    return res.send('YES');
   } catch (err) {
-    console.error('❌ Error processing payment:', err.message);
-    // Set order status to unpaid if order exists
-    try {
-      const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
-      if (result.rows.length > 0) {
-        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['unpaid', MERCHANT_ORDER_ID]);
-      }
-    } catch (e) { /* ignore */ }
+    console.error('❌ Error in Freekassa callback:', err.message);
     return res.status(500).send('Internal Server Error');
+  }
+}
+
+// Helper function to redeem codes
+async function redeemCode(playerId, codeType) {
+  // DEMO MODE: Always return a mock successful response
+  if (process.env.DEMO_MODE === 'true') {
+    console.log('✅ SyNet API mock response used (in demo mode) for playerId:', playerId, 'codeType:', codeType);
+    return {
+      success: true,
+      data: {
+        success: true,
+        warning: false,
+        took: 123,
+        playerId: playerId,
+        code: 'MOCK-UC-123',
+        openid: 'mock_openid',
+        name: 'DemoPlayer',
+        region: 'EU',
+        productName: codeType || '60uc',
+        amount: 60,
+        uid: 'mock_uid',
+        email: 'demo@example.com',
+        password: 'mockpassword'
+      }
+    };
+  }
+
+  try {
+    const response = await fetch('https://synet.syntex-dev.ru/redeemDb', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.CHARACTER_API_TOKEN}`
+      },
+      body: JSON.stringify({
+        codeType,
+        playerId
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      return {
+        success: true,
+        data: data.data
+      };
+    } else {
+      throw new Error(data.error || 'Unknown error');
+    }
+  } catch (error) {
+    console.error('❌ SyNet API error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
   }
 } 
