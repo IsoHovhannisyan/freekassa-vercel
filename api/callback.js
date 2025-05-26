@@ -89,12 +89,14 @@ export default async function handler(req, res) {
       return res.status(404).send('Order not found');
     }
 
-    if (order.status === 'confirmed') {
-      return res.send('Already confirmed');
+    if (order.status === 'delivered' || order.status === 'error') {
+      console.log(`⏩ Order ${MERCHANT_ORDER_ID} already ${order.status}, skipping activation.`);
+      return res.send(`Order already ${order.status}`);
     }
 
-    // Update order status
+    // Update order status to pending (even if already pending, for demo)
     await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', MERCHANT_ORDER_ID]);
+    console.log(`🔄 Order ${MERCHANT_ORDER_ID} status set to pending.`);
 
     // --- DEMO_MODE: Mock activation step ---
     let activationSuccess = true;
@@ -119,8 +121,10 @@ export default async function handler(req, res) {
       // Update order status based on activation result
       if (activationSuccess) {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['delivered', MERCHANT_ORDER_ID]);
+        console.log(`🚚 Order ${MERCHANT_ORDER_ID} status set to delivered.`);
       } else {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
+        console.log(`🛑 Order ${MERCHANT_ORDER_ID} status set to error.`);
       }
     }
     // --- END DEMO_MODE activation ---
