@@ -99,8 +99,10 @@ export default async function handler(req, res) {
       status: () => ({ send: () => {} }),
       send: () => {}
     };
+    console.log('>>> About to call callbackHandler in demo-pay.js');
     await callbackHandler(fakeReq, fakeRes);
     console.log('🟢 Freekassa callback finished for demo order:', orderId);
+    console.log('>>> callbackHandler finished in demo-pay.js');
     // --- End Freekassa callback logic ---
 
     res.send('<h2>✅ Order marked as paid!<br>Stock updated for UC_by_id products.<br>Code activation and notification triggered.<br>You can check the admin panel now.</h2>');

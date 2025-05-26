@@ -14,6 +14,7 @@ const pool = new Pool({
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 export default async function handler(req, res) {
+  console.log('>>> Entered callback.js handler');
   // Set CORS headers to allow Freekassa servers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
@@ -21,16 +22,19 @@ export default async function handler(req, res) {
 
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
+    console.log('>>> Returning early at OPTIONS');
     return res.status(200).end();
   }
 
   // Handle GET requests (merchant verification)
   if (req.method === 'GET') {
+    console.log('>>> Returning early at GET');
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('YES');
   }
 
   if (req.method !== 'POST') {
+    console.log('>>> Returning early at not POST');
     return res.status(405).send('Method Not Allowed');
   }
 
@@ -44,6 +48,7 @@ export default async function handler(req, res) {
 
   // Handle status check requests
   if (body.status_check === '1') {
+    console.log('>>> Returning early at status_check');
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('YES');
   }
@@ -52,13 +57,13 @@ export default async function handler(req, res) {
   const SECRET_2 = process.env.FREEKASSA_SECRET_2;
 
   if (!SECRET_2) {
-    console.error('❌ FREEKASSA_SECRET_2 is not set');
+    console.log('>>> Returning early at missing SECRET_2');
     return res.status(500).send('Server configuration error');
   }
 
   // Verify required fields
   if (!MERCHANT_ORDER_ID || !AMOUNT || !SIGN) {
-    console.log('❌ Missing required fields');
+    console.log('>>> Returning early at missing required fields');
     return res.status(400).send('Missing required fields');
   }
 
@@ -68,7 +73,7 @@ export default async function handler(req, res) {
     .digest('hex');
 
   if (SIGN !== expectedSign) {
-    console.log('❌ Invalid signature!');
+    console.log('>>> Returning early at invalid signature');
     // Set order status to unpaid if order exists
     try {
       const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
@@ -85,7 +90,7 @@ export default async function handler(req, res) {
     const order = result.rows[0];
 
     if (!order) {
-      console.warn(`❌ Order ${MERCHANT_ORDER_ID} not found`);
+      console.log('>>> Returning early at order not found');
       return res.status(404).send('Order not found');
     }
 
@@ -186,4 +191,5 @@ export default async function handler(req, res) {
     } catch (e) { /* ignore */ }
     return res.status(500).send('Internal Server Error');
   }
+  console.log('>>> End of callback.js handler');
 } 
