@@ -59,13 +59,27 @@ export default async function handler(req, res) {
 
   if (!SECRET_2) {
     console.log('>>> Returning early at missing SECRET_2');
-    return res.status(500).send('Server configuration error');
+    // Set order status to unpaid if order exists
+    try {
+      const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
+      if (result.rows.length > 0) {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['unpaid', MERCHANT_ORDER_ID]);
+      }
+    } catch (e) { /* ignore */ }
+    return res.status(400).send('Payment verification failed: missing secret');
   }
 
   // Verify required fields
   if (!MERCHANT_ORDER_ID || !AMOUNT || !SIGN) {
     console.log('>>> Returning early at missing required fields');
-    return res.status(400).send('Missing required fields');
+    // Set order status to unpaid if order exists
+    try {
+      const result = await pool.query('SELECT * FROM orders WHERE id = $1', [MERCHANT_ORDER_ID]);
+      if (result.rows.length > 0) {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['unpaid', MERCHANT_ORDER_ID]);
+      }
+    } catch (e) { /* ignore */ }
+    return res.status(400).send('Payment verification failed: missing required fields');
   }
 
   const expectedSign = crypto
@@ -82,7 +96,7 @@ export default async function handler(req, res) {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['unpaid', MERCHANT_ORDER_ID]);
       }
     } catch (e) { /* ignore */ }
-    return res.status(403).send('Invalid signature');
+    return res.status(403).send('Payment verification failed: invalid signature');
   }
 
   try {
