@@ -1,4 +1,6 @@
 const { Pool } = require('pg');
+const path = require('path');
+const handleFreekassaCallback = require(path.resolve(__dirname, '../../bot/services/freekassa'));
 
 const pool = new Pool({
   connectionString: process.env.DB_URL,
@@ -82,7 +84,26 @@ export default async function handler(req, res) {
       }
     }
 
-    res.send('<h2>✅ Order marked as paid!<br>Stock updated for UC_by_id products.<br>You can check the admin panel now.</h2>');
+    // --- Call Freekassa callback logic to trigger code activation and notification ---
+    console.log('🟡 Calling Freekassa callback for demo order:', orderId);
+    const fakeReq = {
+      query: {
+        MERCHANT_ID: 'demo',
+        AMOUNT: order.total || 0,
+        MERCHANT_ORDER_ID: orderId,
+        SIGN: 'demo'
+      }
+    };
+    const fakeRes = {
+      send: (msg) => {/* ignore in demo */},
+      status: () => ({ send: () => {} }),
+      setHeader: () => {}
+    };
+    await handleFreekassaCallback(fakeReq, fakeRes);
+    console.log('🟢 Freekassa callback finished for demo order:', orderId);
+    // --- End Freekassa callback logic ---
+
+    res.send('<h2>✅ Order marked as paid!<br>Stock updated for UC_by_id products.<br>Code activation and notification triggered.<br>You can check the admin panel now.</h2>');
   } catch (err) {
     console.error('Demo pay error:', err.message);
     try {
