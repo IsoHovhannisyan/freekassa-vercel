@@ -39,14 +39,18 @@ export default async function handler(req, res) {
     AMOUNT,
     MERCHANT_ORDER_ID,
     SIGN
-  } = req.query;
+  } = req.body;
 
   // Verify Freekassa signature
   const hashString = `${MERCHANT_ID}:${AMOUNT}:${process.env.FREEKASSA_SECRET}:${MERCHANT_ORDER_ID}`;
   const expectedSign = crypto.createHash('md5').update(hashString).digest('hex');
 
   if (expectedSign !== SIGN) {
-    console.warn('❌ Invalid sign from Freekassa!');
+    console.warn('❌ Invalid sign from Freekassa!', {
+      received: SIGN,
+      expected: expectedSign,
+      hashString
+    });
     return res.status(403).send('Invalid sign');
   }
 
