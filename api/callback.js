@@ -1,6 +1,6 @@
-const crypto = require('crypto');
-const { Pool } = require('pg');
-const { Telegraf } = require('telegraf');
+import crypto from 'crypto';
+import { Pool } from 'pg';
+import { Telegraf } from 'telegraf';
 
 // Initialize database connection
 const pool = new Pool({
