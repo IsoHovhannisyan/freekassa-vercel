@@ -1,10 +1,5 @@
 import { Pool } from 'pg';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import handleFreekassaCallback from '../../bot/services/freekassa.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import callbackHandler from './callback.js';
 
 const pool = new Pool({
   connectionString: process.env.DB_URL,
@@ -91,19 +86,19 @@ export default async function handler(req, res) {
     // --- Call Freekassa callback logic to trigger code activation and notification ---
     console.log('🟡 Calling Freekassa callback for demo order:', orderId);
     const fakeReq = {
-      query: {
-        MERCHANT_ID: 'demo',
-        AMOUNT: order.total || 0,
+      method: 'POST',
+      body: {
         MERCHANT_ORDER_ID: orderId,
-        SIGN: 'demo'
+        AMOUNT: order.total || 0,
+        SIGN: crypto.createHash('md5').update(`${orderId}:${order.total || 0}:${process.env.FREEKASSA_SECRET_2}`).digest('hex')
       }
     };
     const fakeRes = {
-      send: (msg) => {/* ignore in demo */},
+      setHeader: () => {},
       status: () => ({ send: () => {} }),
-      setHeader: () => {}
+      send: () => {}
     };
-    await handleFreekassaCallback(fakeReq, fakeRes);
+    await callbackHandler(fakeReq, fakeRes);
     console.log('🟢 Freekassa callback finished for demo order:', orderId);
     // --- End Freekassa callback logic ---
 
