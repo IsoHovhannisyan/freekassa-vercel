@@ -1,6 +1,4 @@
-import { Pool } from 'pg';
-import callbackHandler from './callback.js';
-import crypto from 'crypto';
+const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DB_URL,
@@ -87,21 +85,21 @@ export default async function handler(req, res) {
     // --- Call Freekassa callback logic to trigger code activation and notification ---
     console.log('🟡 Calling Freekassa callback for demo order:', orderId);
     const fakeReq = {
-      method: 'POST',
-      body: {
-        MERCHANT_ORDER_ID: orderId,
+      query: {
+        MERCHANT_ID: 'demo',
         AMOUNT: order.total || 0,
-        SIGN: crypto.createHash('md5').update(`${orderId}:${order.total || 0}:${process.env.FREEKASSA_SECRET_2}`).digest('hex')
+        MERCHANT_ORDER_ID: orderId,
+        SIGN: 'demo'
       }
     };
     const fakeRes = {
-      setHeader: () => {},
+      send: (msg) => {/* ignore in demo */},
       status: () => ({ send: () => {} }),
-      send: () => {}
+      setHeader: () => {}
     };
-    console.log('>>> About to call callbackHandler in demo-pay.js');
-    await callbackHandler(fakeReq, fakeRes);
+    await handleFreekassaCallback(fakeReq, fakeRes);
     console.log('🟢 Freekassa callback finished for demo order:', orderId);
+    await callbackHandler(fakeReq, fakeRes);
     console.log('>>> callbackHandler finished in demo-pay.js');
     // --- End Freekassa callback logic ---
 

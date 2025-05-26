@@ -1,6 +1,6 @@
-import crypto from 'crypto';
-import { Pool } from 'pg';
-import { Telegraf } from 'telegraf';
+const crypto = require('crypto');
+const { Pool } = require('pg');
+const { Telegraf } = require('telegraf');
 
 // Initialize database connection
 const pool = new Pool({
@@ -13,8 +13,9 @@ const pool = new Pool({
 // Initialize bot
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
+console.log('>>> Entered callback.js handler');
+
 export default async function handler(req, res) {
-  console.log('>>> Entered callback.js handler');
   // Set CORS headers to allow Freekassa servers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
@@ -99,40 +100,8 @@ export default async function handler(req, res) {
       return res.send(`Order already ${order.status}`);
     }
 
-    // Update order status to pending (even if already pending, for demo)
+    // Update order status
     await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', MERCHANT_ORDER_ID]);
-    console.log(`🔄 Order ${MERCHANT_ORDER_ID} status set to pending.`);
-
-    // --- DEMO_MODE: Mock activation step ---
-    let activationSuccess = true;
-    let activationError = null;
-    if (process.env.DEMO_MODE === 'true') {
-      console.log('🔔 [DEMO_MODE] Running mock activation for order', MERCHANT_ORDER_ID);
-      try {
-        // Simulate activation logic (randomly fail for demonstration)
-        if (Math.random() < 0.9) { // 90% success rate
-          activationSuccess = true;
-          console.log('✅ [DEMO_MODE] Activation successful for order', MERCHANT_ORDER_ID);
-        } else {
-          activationSuccess = false;
-          activationError = 'Mock activation failed';
-          console.log('❌ [DEMO_MODE] Activation failed for order', MERCHANT_ORDER_ID);
-        }
-      } catch (e) {
-        activationSuccess = false;
-        activationError = e.message;
-        console.log('❌ [DEMO_MODE] Activation error for order', MERCHANT_ORDER_ID, e.message);
-      }
-      // Update order status based on activation result
-      if (activationSuccess) {
-        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['delivered', MERCHANT_ORDER_ID]);
-        console.log(`🚚 Order ${MERCHANT_ORDER_ID} status set to delivered.`);
-      } else {
-        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
-        console.log(`🛑 Order ${MERCHANT_ORDER_ID} status set to error.`);
-      }
-    }
-    // --- END DEMO_MODE activation ---
 
     let products;
     try {
@@ -177,10 +146,13 @@ export default async function handler(req, res) {
       }
     }
 
+    console.log('>>> About to set status to pending and run activation');
     console.log('✅ Payment confirmed and order updated:', MERCHANT_ORDER_ID, AMOUNT);
     res.setHeader('Content-Type', 'text/plain');
+    console.log('>>> Finished activation block, about to parse products and send notification');
     res.send('YES');
   } catch (err) {
+    console.log('>>> Returning at catch block');
     console.error('❌ Error processing payment:', err.message);
     // Set order status to unpaid if order exists
     try {
@@ -191,5 +163,4 @@ export default async function handler(req, res) {
     } catch (e) { /* ignore */ }
     return res.status(500).send('Internal Server Error');
   }
-  console.log('>>> End of callback.js handler');
 } 
