@@ -96,6 +96,35 @@ export default async function handler(req, res) {
     // Update order status
     await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['pending', MERCHANT_ORDER_ID]);
 
+    // --- DEMO_MODE: Mock activation step ---
+    let activationSuccess = true;
+    let activationError = null;
+    if (process.env.DEMO_MODE === 'true') {
+      console.log('🔔 [DEMO_MODE] Running mock activation for order', MERCHANT_ORDER_ID);
+      try {
+        // Simulate activation logic (randomly fail for demonstration)
+        if (Math.random() < 0.9) { // 90% success rate
+          activationSuccess = true;
+          console.log('✅ [DEMO_MODE] Activation successful for order', MERCHANT_ORDER_ID);
+        } else {
+          activationSuccess = false;
+          activationError = 'Mock activation failed';
+          console.log('❌ [DEMO_MODE] Activation failed for order', MERCHANT_ORDER_ID);
+        }
+      } catch (e) {
+        activationSuccess = false;
+        activationError = e.message;
+        console.log('❌ [DEMO_MODE] Activation error for order', MERCHANT_ORDER_ID, e.message);
+      }
+      // Update order status based on activation result
+      if (activationSuccess) {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['delivered', MERCHANT_ORDER_ID]);
+      } else {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
+      }
+    }
+    // --- END DEMO_MODE activation ---
+
     let products;
     try {
       products = Array.isArray(order.products) ? order.products : JSON.parse(order.products);
