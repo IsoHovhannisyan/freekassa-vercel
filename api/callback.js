@@ -70,7 +70,11 @@ export default async function handler(req, res) {
   }
 
   // Verify required fields
-  if (!MERCHANT_ORDER_ID || !AMOUNT || !SIGN) {
+  if (
+    typeof MERCHANT_ORDER_ID === 'undefined' ||
+    typeof AMOUNT === 'undefined' ||
+    typeof SIGN === 'undefined'
+  ) {
     console.log('>>> Returning early at missing required fields');
     // Set order status to unpaid if order exists
     try {
