@@ -1,4 +1,6 @@
-const { Pool } = require('pg');
+import { Pool } from 'pg';
+import callbackHandler from './callback.js';
+import crypto from 'crypto';
 
 const pool = new Pool({
   connectionString: process.env.DB_URL,
