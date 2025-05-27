@@ -164,6 +164,36 @@ export default async function handler(req, res) {
       }
     }
 
+    // DEMO_MODE: Mock activation step
+    if (process.env.DEMO_MODE === 'true') {
+      let activationSuccess = true;
+      let activationError = null;
+      console.log('🔔 [DEMO_MODE] Running mock activation for order', MERCHANT_ORDER_ID);
+      try {
+        // Simulate activation logic (90% success rate)
+        if (Math.random() < 0.9) {
+          activationSuccess = true;
+          console.log('✅ [DEMO_MODE] Activation successful for order', MERCHANT_ORDER_ID);
+        } else {
+          activationSuccess = false;
+          activationError = 'Mock activation failed';
+          console.log('❌ [DEMO_MODE] Activation failed for order', MERCHANT_ORDER_ID);
+        }
+      } catch (e) {
+        activationSuccess = false;
+        activationError = e.message;
+        console.log('❌ [DEMO_MODE] Activation error for order', MERCHANT_ORDER_ID, e.message);
+      }
+      // Update order status based on activation result
+      if (activationSuccess) {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['delivered', MERCHANT_ORDER_ID]);
+        console.log(`🚚 Order ${MERCHANT_ORDER_ID} status set to delivered.`);
+      } else {
+        await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
+        console.log(`🛑 Order ${MERCHANT_ORDER_ID} status set to error.`);
+      }
+    }
+
     console.log('>>> About to set status to pending and run activation');
     console.log('✅ Payment confirmed and order updated:', MERCHANT_ORDER_ID, AMOUNT);
     res.setHeader('Content-Type', 'text/plain');
