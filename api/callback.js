@@ -184,6 +184,7 @@ export default async function handler(req, res) {
         activationError = e.message;
         console.log('❌ [DEMO_MODE] Activation error for order', MERCHANT_ORDER_ID, e.message);
       }
+
       // Update order status based on activation result
       if (activationSuccess) {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['delivered', MERCHANT_ORDER_ID]);
@@ -191,6 +192,44 @@ export default async function handler(req, res) {
       } else {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
         console.log(`🛑 Order ${MERCHANT_ORDER_ID} status set to error.`);
+
+        // --- MANAGER NOTIFICATION ON UC ACTIVATION ERROR ---
+        if (products.some(p => p.category === 'uc_by_id')) {
+          // Get manager IDs from env
+          let managerIds = [];
+          if (process.env.MANAGER_CHAT_ID) managerIds.push(process.env.MANAGER_CHAT_ID);
+          if (process.env.MANAGER_IDS) managerIds = managerIds.concat(process.env.MANAGER_IDS.split(','));
+          managerIds = [...new Set(managerIds.filter(Boolean))];
+
+          // Fetch user info (if available)
+          let userInfo = null;
+          try {
+            const userRes = await pool.query('SELECT username FROM users WHERE telegram_id = $1', [order.user_id]);
+            userInfo = userRes.rows[0];
+          } catch (e) { userInfo = null; }
+
+          const itemsText = products.map(p =>
+            `📦 ${p.name || p.title} x${p.qty} — ${p.price * p.qty} ₽`
+          ).join('\n');
+
+          const managerMessage = `❌ <b>Ошибка активации заказа (UC)</b>\n\n` +
+            `ID заказа: <b>${order.id}</b>\n` +
+            `🎮 PUBG ID: <code>${order.pubg_id}</code>\n` +
+            `${order.nickname ? `👤 Никнейм: ${order.nickname}\n` : ''}` +
+            `${userInfo ? `🆔 Telegram: <b>${order.user_id}</b> ${userInfo.username ? `(@${userInfo.username})` : ''}\n` : ''}` +
+            `${itemsText}\n\n` +
+            `💰 Сумма: ${AMOUNT} ₽\n` +
+            `⚠️ <b>Ошибка активации:</b>\n${activationError}`;
+
+          for (const managerId of managerIds) {
+            try {
+              await bot.telegram.sendMessage(managerId, managerMessage, { parse_mode: 'HTML' });
+              console.log(`✅ Sent UC activation error notification to manager ${managerId}`);
+            } catch (err) {
+              console.error(`❌ Failed to send UC activation error to manager ${managerId}:`, err.message);
+            }
+          }
+        }
       }
     }
 
