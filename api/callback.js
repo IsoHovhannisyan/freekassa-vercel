@@ -149,8 +149,11 @@ export default async function handler(req, res) {
       `📦 ${p.name || p.title} x${p.qty} — ${p.price * p.qty} ₽`
     ).join('\n');
 
+    // Calculate total sum
+    const totalSum = products.reduce((sum, p) => sum + (p.price * p.qty), 0);
+
     try {
-      await bot.telegram.sendMessage(userId, `\n🧾 Заказ подтверждён:\n\n🎮 PUBG ID: ${pubgId}\n${itemsText}\n\n💰 Сумма: ${AMOUNT} ₽\n✅ Оплата получена. Ваш заказ скоро будет выполнен.\n    `);
+      await bot.telegram.sendMessage(userId, `\n🧾 Заказ подтверждён:\n\n🎮 PUBG ID: ${pubgId}\n${itemsText}\n\n💰 Сумма: ${totalSum} ₽\n✅ Оплата получена. Ваш заказ скоро будет выполнен.\n    `);
     } catch (botError) {
       // Handle specific Telegram bot errors gracefully
       if (botError.message.includes('chat not found') || 
@@ -196,7 +199,7 @@ export default async function handler(req, res) {
             `🎮 PUBG ID: <code>${order.pubg_id}</code>\n` +
             `${order.nickname ? `👤 Никнейм: ${order.nickname}\n` : ''}` +
             `${itemsText}\n\n` +
-            `💰 Сумма: ${AMOUNT} ₽\n\n` +
+            `💰 Сумма: ${totalSum} ₽\n\n` +
             `Спасибо за покупку! 🎉\n\n` +
             `💬 Оставьте отзыв о нашем сервисе: @Isohovhannisyan`;
 
@@ -204,6 +207,40 @@ export default async function handler(req, res) {
           console.log(`✅ Sent delivery notification to user ${order.user_id}`);
         } catch (err) {
           console.error(`❌ Failed to send delivery notification to user ${order.user_id}:`, err.message);
+        }
+
+        // Send success notification to manager
+        if (products.some(p => p.category === 'uc_by_id')) {
+          // Get manager IDs from env
+          let managerIds = [];
+          if (process.env.MANAGER_CHAT_ID) managerIds.push(process.env.MANAGER_CHAT_ID);
+          if (process.env.MANAGER_IDS) managerIds = managerIds.concat(process.env.MANAGER_IDS.split(','));
+          managerIds = [...new Set(managerIds.filter(Boolean))];
+
+          // Fetch user info (if available)
+          let userInfo = null;
+          try {
+            const userRes = await pool.query('SELECT username FROM users WHERE telegram_id = $1', [order.user_id]);
+            userInfo = userRes.rows[0];
+          } catch (e) { userInfo = null; }
+
+          const managerMessage = `✅ <b>Автоматический заказ UC успешно выполнен</b>\n\n` +
+            `ID заказа: <b>${order.id}</b>\n` +
+            `🎮 PUBG ID: <code>${order.pubg_id}</code>\n` +
+            `${order.nickname ? `👤 Никнейм: ${order.nickname}\n` : ''}` +
+            `${userInfo ? `🆔 Telegram: <b>${order.user_id}</b> ${userInfo.username ? `(@${userInfo.username})` : ''}\n` : ''}` +
+            `${itemsText}\n\n` +
+            `💰 Сумма: ${totalSum} ₽\n` +
+            `📦 Статус: <b>Доставлен</b>`;
+
+          for (const managerId of managerIds) {
+            try {
+              await bot.telegram.sendMessage(managerId, managerMessage, { parse_mode: 'HTML' });
+              console.log(`✅ Sent UC success notification to manager ${managerId}`);
+            } catch (err) {
+              console.error(`❌ Failed to send UC success notification to manager ${managerId}:`, err.message);
+            }
+          }
         }
       } else {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
@@ -224,17 +261,14 @@ export default async function handler(req, res) {
             userInfo = userRes.rows[0];
           } catch (e) { userInfo = null; }
 
-          const itemsText = products.map(p =>
-            `📦 ${p.name || p.title} x${p.qty} — ${p.price * p.qty} ₽`
-          ).join('\n');
-
           const managerMessage = `❌ <b>Ошибка активации заказа (UC)</b>\n\n` +
             `ID заказа: <b>${order.id}</b>\n` +
             `🎮 PUBG ID: <code>${order.pubg_id}</code>\n` +
             `${order.nickname ? `👤 Никнейм: ${order.nickname}\n` : ''}` +
             `${userInfo ? `🆔 Telegram: <b>${order.user_id}</b> ${userInfo.username ? `(@${userInfo.username})` : ''}\n` : ''}` +
             `${itemsText}\n\n` +
-            `💰 Сумма: ${AMOUNT} ₽\n` +
+            `💰 Сумма: ${totalSum} ₽\n` +
+            `📦 Статус: <b>Ошибка</b>\n` +
             `⚠️ <b>Ошибка активации:</b>\n${activationError}`;
 
           for (const managerId of managerIds) {
