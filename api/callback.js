@@ -189,6 +189,22 @@ export default async function handler(req, res) {
       if (activationSuccess) {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['delivered', MERCHANT_ORDER_ID]);
         console.log(`🚚 Order ${MERCHANT_ORDER_ID} status set to delivered.`);
+
+        // Send delivery notification to user
+        try {
+          const deliveryMessage = `✅ <b>Ваш заказ доставлен!</b>\n\n` +
+            `🎮 PUBG ID: <code>${order.pubg_id}</code>\n` +
+            `${order.nickname ? `👤 Никнейм: ${order.nickname}\n` : ''}` +
+            `${itemsText}\n\n` +
+            `💰 Сумма: ${AMOUNT} ₽\n\n` +
+            `Спасибо за покупку! 🎉\n\n` +
+            `💬 Оставьте отзыв о нашем сервисе: @Isohovhannisyan`;
+
+          await bot.telegram.sendMessage(order.user_id, deliveryMessage, { parse_mode: 'HTML' });
+          console.log(`✅ Sent delivery notification to user ${order.user_id}`);
+        } catch (err) {
+          console.error(`❌ Failed to send delivery notification to user ${order.user_id}:`, err.message);
+        }
       } else {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
         console.log(`🛑 Order ${MERCHANT_ORDER_ID} status set to error.`);
