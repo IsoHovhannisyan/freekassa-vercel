@@ -211,18 +211,36 @@ export default async function handler(req, res) {
 
         // Send success notification to manager
         if (products.some(p => p.category === 'uc_by_id')) {
+          console.log('🔍 [DEBUG] UC product found, preparing manager notification');
+          
           // Get manager IDs from env
           let managerIds = [];
-          if (process.env.MANAGER_CHAT_ID) managerIds.push(process.env.MANAGER_CHAT_ID);
-          if (process.env.MANAGER_IDS) managerIds = managerIds.concat(process.env.MANAGER_IDS.split(','));
+          if (process.env.MANAGER_CHAT_ID) {
+            managerIds.push(process.env.MANAGER_CHAT_ID);
+            console.log('📱 [DEBUG] Found MANAGER_CHAT_ID:', process.env.MANAGER_CHAT_ID);
+          }
+          if (process.env.MANAGER_IDS) {
+            const ids = process.env.MANAGER_IDS.split(',');
+            managerIds = managerIds.concat(ids);
+            console.log('📱 [DEBUG] Found MANAGER_IDS:', ids);
+          }
           managerIds = [...new Set(managerIds.filter(Boolean))];
+          console.log('📱 [DEBUG] Final manager IDs:', managerIds);
+
+          if (managerIds.length === 0) {
+            console.warn('⚠️ [DEBUG] No manager IDs found in environment variables');
+          }
 
           // Fetch user info (if available)
           let userInfo = null;
           try {
             const userRes = await pool.query('SELECT username FROM users WHERE telegram_id = $1', [order.user_id]);
             userInfo = userRes.rows[0];
-          } catch (e) { userInfo = null; }
+            console.log('👤 [DEBUG] User info:', userInfo);
+          } catch (e) { 
+            console.error('❌ [DEBUG] Error fetching user info:', e.message);
+            userInfo = null; 
+          }
 
           const managerMessage = `✅ <b>Автоматический заказ UC успешно выполнен</b>\n\n` +
             `ID заказа: <b>${order.id}</b>\n` +
@@ -233,14 +251,19 @@ export default async function handler(req, res) {
             `💰 Сумма: ${totalSum} ₽\n` +
             `📦 Статус: <b>Доставлен</b>`;
 
+          console.log('📝 [DEBUG] Manager message prepared:', managerMessage);
+
           for (const managerId of managerIds) {
             try {
               await bot.telegram.sendMessage(managerId, managerMessage, { parse_mode: 'HTML' });
               console.log(`✅ Sent UC success notification to manager ${managerId}`);
             } catch (err) {
               console.error(`❌ Failed to send UC success notification to manager ${managerId}:`, err.message);
+              console.error('❌ Full error:', err);
             }
           }
+        } else {
+          console.log('ℹ️ [DEBUG] No UC products found in order:', products.map(p => p.category));
         }
       } else {
         await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['error', MERCHANT_ORDER_ID]);
